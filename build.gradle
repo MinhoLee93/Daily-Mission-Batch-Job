@@ -1,0 +1,84 @@
+buildscript {
+    ext {
+        springBootVersion = '2.1.9.RELEASE'
+    }
+    repositories {
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" } // plugin 저장소
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:${springBootVersion}")
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'org.springframework.boot'
+apply plugin: 'io.spring.dependency-management'
+
+group = 'com.dailymission.batch'
+version = '0.0.1-SNAPSHOT-'+new Date().format("yyyyMMddHHmmss")
+sourceCompatibility = '1.8'
+
+configurations {
+    developmentOnly
+    runtimeClasspath {
+        extendsFrom developmentOnly
+    }
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+    // jojuldu
+    jcenter()
+    // AWS
+    maven { url 'https://repo.spring.io/libs-milestone'}
+}
+
+dependencies {
+    //mariadb
+    implementation 'org.mariadb.jdbc:mariadb-java-client'
+
+    // batch
+    compile 'org.springframework.boot:spring-boot-starter-batch'
+    testCompile 'org.springframework.batch:spring-batch-test'
+
+    // lombok
+    compile 'org.projectlombok:lombok'
+
+    // jpa
+    compile 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // h2
+    testCompile 'com.h2database:h2'
+    runtime 'com.h2database:h2'
+
+    // annotation processor
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // devtool
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+}
+
+test {
+    useJUnitPlatform()
+}
+
+tasks.withType(Test) {
+    scanForTestClasses = false
+    include "**/*Test.class" // whatever Ant pattern matches your test class files
+}
+
+
+ext {
+    gradleVersion= '4.10.2'
+}
+
+wrapper {
+    gradleVersion = "$gradleVersion"
+}
