@@ -94,4 +94,8 @@ public class Mission extends BaseTimeEntity implements Serializable {
     @Column(name = "DELETED", nullable = false)
     private boolean deleted;
 
+    // 종료
+    public void end(){
+        this.ended = true;
+    }
 }

@@ -47,30 +47,56 @@ public class BatchJob {
 
     /**
      * [ 2020-03-16 : 이민호 ]
-     * 설명 : 미션 인증 요일에 인증하지 않은 사용자를 강퇴한다.
-     *       만약 미션의 endDate 가 지났을 경우 해당 미션을 종료한다.
+     * 설명 : 1. 미션 인증 요일에 인증하지 않은 사용자를 강퇴한다.
+     *        2. 미션의 참여자가 0이거나, 미션의 endDate 가 지났을경우 미션을 종료한다.
      * */
     @Bean
     public Job job(){
         return jobBuilderFactory.get(JOB_NAME)
-                                .start(step())
+                                .start(banStep())
+                                .next(endStep())
                                 .build();
     }
 
+
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 미션 인증 요일에 인증하지 않은 사용자를 강퇴한다.
+     * */
     @Bean
     @JobScope
-    public Step step(){
-        return stepBuilderFactory.get("jpaPagingStep")
+    public Step banStep(){
+        return stepBuilderFactory.get("banStep")
                 .<Participant, Participant>chunk(chunkSize)
-                .reader(missionReader())
+                .reader(participantsReader())
                 .processor(banProcessor(null))
                 .writer(bannedParticipantWriter())
                 .build();
     }
 
+
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 미션의 참여자가 0이거나, 미션의 endDate 가 지났을경우 미션을 종료한다.
+     * */
+    @Bean
+    @JobScope
+    public Step endStep(){
+        return stepBuilderFactory.get("endStep")
+                .<Mission, Mission>chunk(chunkSize)
+                .reader(missionsReader())
+                .processor(endProcessor(null))
+                .writer(endMissionWriter())
+                .build();
+    }
+
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 전체 미션의 참여자 중 강퇴되지 않은 참여자들을 조회한다.
+     * */
     @Bean
     @StepScope
-    public JpaPagingItemReader<Participant> missionReader(){
+    public JpaPagingItemReader<Participant> participantsReader(){
 
         // 페이지 고정
         JpaPagingItemReader<Participant> reader = new JpaPagingItemReader<Participant>(){
@@ -79,7 +105,7 @@ public class BatchJob {
                   return 0;
               }
         };
-        reader.setName("jpaPagingItemReader");
+        reader.setName("participantsReader");
         reader.setQueryString("SELECT p FROM Participant p where banned = false order by id");
         reader.setEntityManagerFactory(entityManagerFactory);
         reader.setPageSize(chunkSize);
@@ -87,7 +113,35 @@ public class BatchJob {
         return reader;
     }
 
-    // List<Participant>
+
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 종료 및 삭제되지 않은 모든 미션을 조회힌다.
+     * */
+    @Bean
+    @StepScope
+    public JpaPagingItemReader<Mission> missionsReader(){
+
+        // 페이지 고정
+        JpaPagingItemReader<Mission> reader = new JpaPagingItemReader<Mission>(){
+            @Override
+            public int getPage(){
+                return 0;
+            }
+        };
+        reader.setName("missionsReader");
+        reader.setQueryString("SELECT p FROM Mission p where deleted = false and ended = false order by id");
+        reader.setEntityManagerFactory(entityManagerFactory);
+        reader.setPageSize(chunkSize);
+
+        return reader;
+    }
+
+
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 미션 인증 요일에 인증하지 않은 사용자를 강퇴한다.
+     * */
     @Bean
     @StepScope
     public ItemProcessor<Participant, Participant> banProcessor(@Value("#{jobParameters[requestDate]}") String requestDate){
@@ -111,7 +165,32 @@ public class BatchJob {
             log.info(">>>>>>>>>>>>>>  current mission {}", mission.getTitle());
             log.info(">>>>>>>>>>>>>>  user {}", user.getName());
 
-            // 제출안해도 되는 요일이면 pass
+            /**
+             * [ 2020-03-17 : 이민호 ]
+             * 설명 : 미션이 종료되었거나, 삭제되었으면 패스한다.
+             * */
+            if(mission.isDeleted() || mission.isEnded()) {
+                return null;
+            }
+
+            /**
+             * [ 2020-03-17 : 이민호 ]
+             * 설명 : 아직 미션이 시작하지 않았으면 패스한다.
+             *        ex) 시작일 : 2020-03-17
+             *            현재 : 2020-03-17 03:00:00
+             *            -> 2020-03-16 03:00 ~ 2020-03-17 03:00 (즉, 최소 16일날엔 시작한 미션이여야 한다.)
+             * */
+            if(mission.getStartDate().isAfter(now.minusDays(1))){
+                log.info(">>>>>>>>>>>>>>  mission startDate is {}", mission.getStartDate());
+                log.info(">>>>>>>>>>>>>>  ban check requestDate is {}",now.minusDays(1));
+                return null;
+            }
+
+
+            /**
+             * [ 2020-03-17 : 이민호 ]
+             * 설명 : 제출 의무 요일이 아니면 패스한다.
+             * */
             switch (week.getValue()){
                 case 1:
                     if(!rule.isMon()){
@@ -180,10 +259,58 @@ public class BatchJob {
         };
     }
 
+    /**
+     * [ 2020-03-17 : 이민호 ]
+     * 설명 : 강퇴 후 참여자가 0명이거나, endDate 가 지난 미션을 종료한다.
+     * */
+    @Bean
+    @StepScope
+    public ItemProcessor<Mission, Mission> endProcessor(@Value("#{jobParameters[requestDate]}") String requestDate){
+        return mission -> {
+
+            LocalDate now = LocalDate.now();
+
+            // Entity
+            log.info(">>>>>>>>>>>>>>  current mission is {}", mission.getTitle());
+
+            /**
+             * [ 2020-03-17 : 이민호 ]
+             * 설명 : 참여자가 0명인 미션을 종료한다.
+             * */
+            Long count = mission.getParticipants().stream().filter(p->p.isBanned()==false).count();
+            log.info(">>>>>>>>>>>>>>  current mission participants is {}", count);
+            if(count==0){
+                mission.end();
+                return mission;
+            }
+
+            /**
+             * [ 2020-03-17 : 이민호 ]
+             * 설명 : 미션 endDate 가 지난 미션을 종료한다.
+             * */
+            log.info(">>>>>>>>>>>>>>  mission endDate is {}", mission.getEndDate());
+            if(now.isAfter(mission.getEndDate())){
+                mission.end();
+                return mission;
+            }
+
+            return null;
+        };
+    }
+
     @Bean
     @StepScope
     public JpaItemWriter<Participant> bannedParticipantWriter(){
         JpaItemWriter<Participant> writer = new JpaItemWriter<>();
+        writer.setEntityManagerFactory(entityManagerFactory);
+
+        return writer;
+    }
+
+    @Bean
+    @StepScope
+    public JpaItemWriter<Mission> endMissionWriter(){
+        JpaItemWriter<Mission> writer = new JpaItemWriter<>();
         writer.setEntityManagerFactory(entityManagerFactory);
 
         return writer;
