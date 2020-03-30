@@ -47,6 +47,12 @@ public class Post extends BaseTimeEntity implements Serializable {
     @Column(name="THUMBNAIL_URL", nullable = false)
     private String thumbnailUrl;
 
+    @Column(name="THUMBNAIL_URL_MISSION", nullable = false)
+    private String thumbnailUrlMission;
+
+    @Column(name="THUMBNAIL_URL_MY", nullable = false)
+    private String thumbnailUrlMy;
+
     @Column(name = "DELETED")
     private boolean deleted;
 

@@ -47,6 +47,8 @@ public class User extends BaseTimeEntity implements Serializable {
 
     private String thumbnailUrl;
 
+    private String thumbnailUrlUserInfo;
+
     @Column(name = "ORIGINAL_FILE_NAME")
     private String originalFileName;
 
